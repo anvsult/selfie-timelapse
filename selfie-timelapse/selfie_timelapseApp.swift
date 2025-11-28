@@ -1,31 +1,33 @@
-//
-//  selfie_timelapseApp.swift
-//  selfie-timelapse
-//
-//  Created by Anvar Sultanov on 2025-11-27.
-//
-
 import SwiftUI
 import SwiftData
+import Combine
 
 @main
-struct selfie_timelapseApp: App {
+struct SelfieTimelapseApp: App {
+    @AppStorage("colorScheme") private var colorSchemeString = "system"
+    
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            SelfieRecord.self
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
+        
         do {
             return try ModelContainer(for: schema, configurations: [modelConfiguration])
         } catch {
             fatalError("Could not create ModelContainer: \(error)")
         }
     }()
-
+    
+    @StateObject private var notificationManager = NotificationManager()
+    @StateObject private var locationManager = LocationManager()
+    
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            HomeView()
+                .environmentObject(notificationManager)
+                .environmentObject(locationManager)
+                .preferredColorScheme(colorSchemeString == "system" ? nil : (colorSchemeString == "dark" ? .dark : .light))
         }
         .modelContainer(sharedModelContainer)
     }

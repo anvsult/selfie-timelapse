@@ -10,9 +10,22 @@
 		E4E3C2CE2ED8F143002851CF /* selfie-timelapse.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "selfie-timelapse.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		E4E3C33F2ED8F979002851CF /* Exceptions for "selfie-timelapse" folder in "selfie-timelapse" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = E4E3C2CD2ED8F143002851CF /* selfie-timelapse */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		E4E3C2D02ED8F143002851CF /* selfie-timelapse */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				E4E3C33F2ED8F979002851CF /* Exceptions for "selfie-timelapse" folder in "selfie-timelapse" target */,
+			);
 			path = "selfie-timelapse";
 			sourceTree = "<group>";
 		};
@@ -256,6 +269,11 @@
 				DEVELOPMENT_TEAM = YXBNZJYCSX;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "selfie-timelapse/Info.plist";
+				INFOPLIST_KEY_NSCameraUsageDescription = "We need access to your camera to capture daily selfies for your timelapse.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "We use your location to tag selfies so you can see where each photo was taken on the map.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "We need permission to save your timelapse videos to your photo library.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need access to save your timelapse videos to your photo library.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -288,6 +306,11 @@
 				DEVELOPMENT_TEAM = YXBNZJYCSX;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "selfie-timelapse/Info.plist";
+				INFOPLIST_KEY_NSCameraUsageDescription = "We need access to your camera to capture daily selfies for your timelapse.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "We use your location to tag selfies so you can see where each photo was taken on the map.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "We need permission to save your timelapse videos to your photo library.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need access to save your timelapse videos to your photo library.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
