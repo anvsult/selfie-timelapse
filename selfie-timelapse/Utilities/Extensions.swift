@@ -4,6 +4,28 @@ import AVFoundation
 import CoreLocation
 
 extension UIImage {
+    /// Downsample image data to a target size to reduce memory usage
+    static func downsample(data: Data, to targetSize: CGSize, scale: CGFloat = UIScreen.main.scale) -> UIImage? {
+        let imageSourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let imageSource = CGImageSourceCreateWithData(data as CFData, imageSourceOptions) else {
+            return nil
+        }
+        
+        let maxDimensionInPixels = max(targetSize.width, targetSize.height) * scale
+        let downsampleOptions = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxDimensionInPixels
+        ] as CFDictionary
+        
+        guard let downsampledImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, downsampleOptions) else {
+            return nil
+        }
+        
+        return UIImage(cgImage: downsampledImage)
+    }
+    
     func pixelBuffer(size: CGSize) -> CVPixelBuffer? {
         let attributes = [
             kCVPixelBufferCGImageCompatibilityKey: kCFBooleanTrue,
@@ -83,4 +105,9 @@ extension CLLocationCoordinate2D: Equatable {
     public static func == (lhs: CLLocationCoordinate2D, rhs: CLLocationCoordinate2D) -> Bool {
         lhs.latitude == rhs.latitude && lhs.longitude == rhs.longitude
     }
+}
+
+// Notification helpers
+extension Notification.Name {
+    static let focusMapOnCoordinate = Notification.Name("FocusMapOnCoordinate")
 }

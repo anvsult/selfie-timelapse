@@ -74,6 +74,28 @@ struct MapView: View {
             .onAppear {
                 viewModel.centerOnRecords(recordsWithLocation)
             }
+            // Listen for requests to focus the map on a particular coordinate
+            .onReceive(NotificationCenter.default.publisher(for: .focusMapOnCoordinate)) { note in
+                guard let info = note.userInfo,
+                      let lat = info["latitude"] as? Double,
+                      let lon = info["longitude"] as? Double else { return }
+
+                let coord = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+
+                // narrow region and center on the requested coordinate
+                let span = MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
+                viewModel.region = MKCoordinateRegion(center: coord, span: span)
+
+                // try to find the matching record (closest by distance) and select it
+                if let closest = recordsWithLocation.min(by: {
+                    let a = CLLocation(latitude: $0.latitude, longitude: $0.longitude)
+                    let b = CLLocation(latitude: $1.latitude, longitude: $1.longitude)
+                    let target = CLLocation(latitude: lat, longitude: lon)
+                    return a.distance(from: target) < b.distance(from: target)
+                }) {
+                    viewModel.selectedRecord = closest
+                }
+            }
             .animation(.default, value: viewModel.selectedRecord)
         }
     }

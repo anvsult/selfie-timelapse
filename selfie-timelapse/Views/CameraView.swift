@@ -50,6 +50,18 @@ struct CameraView: View {
                                 }
                                 .padding(.bottom, 40)
                             }
+                            .onAppear {
+                                // Start/restart camera when view appears
+                                if viewModel.getPreviewLayer() != nil {
+                                    viewModel.startCamera()
+                                } else {
+                                    _ = viewModel.setupCamera()
+                                }
+                            }
+                            .onDisappear {
+                                // Stop camera when view disappears to save memory and battery
+                                viewModel.stopCamera()
+                            }
                     }
                 } else {
                     VStack(spacing: 20) {

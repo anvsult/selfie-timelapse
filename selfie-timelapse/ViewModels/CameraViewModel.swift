@@ -6,6 +6,7 @@ import SwiftData
 import Combine
 import CoreLocation
 
+// TODO : The camera seems to being accessed at all times while the app is open which should only really happen when the capture tab is opened
 class CameraViewModel: NSObject, ObservableObject {
     @Published var isCameraAuthorized = false
     @Published var capturedImage: UIImage?
@@ -93,6 +94,15 @@ class CameraViewModel: NSObject, ObservableObject {
         
         let settings = AVCapturePhotoSettings()
         photoOutput.capturePhoto(with: settings, delegate: self)
+    }
+    
+    func startCamera() {
+        guard let session = captureSession else { return }
+        if !session.isRunning {
+            DispatchQueue.global(qos: .userInitiated).async {
+                session.startRunning()
+            }
+        }
     }
     
     func stopCamera() {

@@ -13,12 +13,8 @@ class VideoGenerator {
         let sortedRecords = records.sorted { $0.captureDate < $1.captureDate }
         let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent("timelapse_\(UUID().uuidString).mov")
         
-        guard let firstImage = UIImage(data: sortedRecords[0].imageData) else {
-            completion(nil)
-            return
-        }
-        
-        let size = CGSize(width: 3024, height: 4032)
+        // Use 1080p resolution instead of full 4K to reduce memory usage
+        let size = CGSize(width: 1080, height: 1440)
         
         guard let videoWriter = try? AVAssetWriter(outputURL: outputURL, fileType: .mov) else {
             completion(nil)
@@ -42,18 +38,21 @@ class VideoGenerator {
         let frameDuration = CMTime(value: 1, timescale: CMTimeScale(fps))
         
         for record in sortedRecords {
-            guard let image = UIImage(data: record.imageData),
-                  let pixelBuffer = image.pixelBuffer(size: size) else {
-                continue
+            autoreleasepool {
+                // Downsample image to target size before creating pixel buffer
+                guard let image = UIImage.downsample(data: record.imageData, to: size),
+                      let pixelBuffer = image.pixelBuffer(size: size) else {
+                    return
+                }
+                
+                while !writerInput.isReadyForMoreMediaData {
+                    Thread.sleep(forTimeInterval: 0.1)
+                }
+                
+                let presentationTime = CMTimeMultiply(frameDuration, multiplier: Int32(frameCount))
+                adaptor.append(pixelBuffer, withPresentationTime: presentationTime)
+                frameCount += 1
             }
-            
-            while !writerInput.isReadyForMoreMediaData {
-                Thread.sleep(forTimeInterval: 0.1)
-            }
-            
-            let presentationTime = CMTimeMultiply(frameDuration, multiplier: Int32(frameCount))
-            adaptor.append(pixelBuffer, withPresentationTime: presentationTime)
-            frameCount += 1
         }
         
         writerInput.markAsFinished()

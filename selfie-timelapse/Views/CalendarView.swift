@@ -42,7 +42,7 @@ struct CalendarView: View {
                 .padding()
                 
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7), spacing: 10) {
-                    ForEach(["S", "M", "T", "W", "T", "F", "S"], id: \.self) { day in
+                    ForEach(Array(["S", "M", "T", "W", "T", "F", "S"].enumerated()), id: \.offset) { _, day in
                         Text(day)
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -107,7 +107,7 @@ struct RecordDetailView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let image = UIImage(data: record.imageData) {
+            if let image = UIImage.downsample(data: record.imageData, to: CGSize(width: 400, height: 300)) {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()

@@ -135,6 +135,7 @@ struct SettingsView: View {
                             )
                         }
                         
+                        // TODO Add a toggle for saving selfies on device. If turned on, all selfies taken through the app will also be saved to phone's photo library
                         Button {
                             exportAllPhotos()
                         } label: {

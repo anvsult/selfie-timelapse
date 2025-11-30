@@ -51,6 +51,7 @@ struct DashboardView: View {
     @StateObject private var calendarVM = CalendarViewModel()
     @State private var todayRecords: [SelfieRecord] = []
     @State private var selectedDayRecords: [SelfieRecord] = []
+    @State private var todayIndex: Int = 0
     @State private var locationName: String = ""
     
     var streakCount: Int {
@@ -61,13 +62,17 @@ struct DashboardView: View {
         records.count
     }
     
+    // TODO The completionRate logic seems wrong because I took 1 selfie/day for 2 days and my completion rate is at 200% (it should never exceed 100%)
+    // I this the issue is that it does not take into account the fact that multiple selfies can be taken in 1 day
     var completionRate: Int {
         guard !records.isEmpty else { return 0 }
         let calendar = Calendar.current
         let startDate = records.map { $0.captureDate }.min() ?? Date()
-        let daysSinceStart = calendar.dateComponents([.day], from: startDate, to: Date()).day ?? 1
+        // Inclusive day count (e.g., start today -> 1 day)
+        let daysSinceStartInclusive = (calendar.dateComponents([.day], from: startDate, to: Date()).day ?? 0) + 1
         let daysWithSelfies = Set(records.map { calendar.startOfDay(for: $0.captureDate) }).count
-        return Int((Double(daysWithSelfies) / Double(max(daysSinceStart, 1))) * 100)
+        let rate = Int((Double(daysWithSelfies) / Double(max(daysSinceStartInclusive, 1))) * 100)
+        return min(max(rate, 0), 100)
     }
     
     var uniqueLocations: Int {
@@ -79,7 +84,7 @@ struct DashboardView: View {
     var journeyDuration: Int {
         guard let firstDate = records.map({ $0.captureDate }).min() else { return 0 }
         let calendar = Calendar.current
-        return calendar.dateComponents([.day], from: firstDate, to: Date()).day ?? 0
+        return (calendar.dateComponents([.day], from: firstDate, to: Date()).day ?? 0) + 1
     }
     
     var body: some View {
@@ -107,7 +112,7 @@ struct DashboardView: View {
                             .padding(.horizontal)
                         
                         if !todayRecords.isEmpty {
-                            TodayCarouselView(records: todayRecords, locationName: locationName, selectedTab: $selectedTab)
+                            TodayCarouselView(records: todayRecords, locationName: locationName, selectedTab: $selectedTab, selection: $todayIndex)
                                 .padding(.horizontal)
                         } else {
                             TodaySelfiePlaceholder()
@@ -202,6 +207,11 @@ struct DashboardView: View {
                 // initialize calendar selection to today so calendar shows today's photos
                 calendarVM.selectedDate = Date()
                 selectedDayRecords = records.filter { Calendar.current.isDateInToday($0.captureDate) }
+                    .sorted { $0.captureDate < $1.captureDate }
+            }
+            .onChange(of: records.count) { _ in
+                // refresh when records are added/removed
+                refreshDerivedRecords()
             }
         }
         .navigationTitle("Selfi")
@@ -212,11 +222,23 @@ struct DashboardView: View {
         todayRecords = records.filter { record in
             calendar.isDateInToday(record.captureDate)
         }
+        .sorted { $0.captureDate < $1.captureDate } // old -> new
+
+        // open carousel on newest (right-most)
+        todayIndex = max(0, todayRecords.count - 1)
 
         // Use the first record with location to show a location name (reverse geocode)
         if let firstWithLocation = todayRecords.first(where: { $0.latitude != 0 && $0.longitude != 0 }) {
             getLocationName(latitude: firstWithLocation.latitude, longitude: firstWithLocation.longitude)
         }
+    }
+
+    // Keep today's records and selected-day records in sync when the dataset changes
+    // (e.g., when deleting a photo).
+    private func refreshDerivedRecords() {
+        loadTodayRecords()
+        selectedDayRecords = records.filter { Calendar.current.isDate($0.captureDate, inSameDayAs: calendarVM.selectedDate) }
+            .sorted { $0.captureDate < $1.captureDate }
     }
     
     private func getLocationName(latitude: Double, longitude: Double) {
@@ -307,26 +329,37 @@ struct TotalSelfiesCard: View {
 }
 
 struct TodaySelfieCard: View {
-    let image: UIImage
+    let imageData: Data
     let date: Date
     let location: String
+    let latitude: Double
+    let longitude: Double
     @Binding var selectedTab: Int
     
     var body: some View {
         ZStack(alignment: .topLeading) {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFill()
-                .frame(height: 400)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-                .overlay(
-                    LinearGradient(
-                        colors: [Color.clear, Color.black.opacity(0.6)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+            Group {
+                if let image = UIImage.downsample(data: imageData, to: CGSize(width: 400, height: 400)) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(height: 400)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                } else {
+                    Rectangle()
+                        .fill(Color.gray)
+                        .frame(height: 400)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
+            }
+            .overlay(
+                LinearGradient(
+                    colors: [Color.clear, Color.black.opacity(0.6)],
+                    startPoint: .top,
+                    endPoint: .bottom
                 )
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+            )
             
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
@@ -341,6 +374,12 @@ struct TodaySelfieCard: View {
                     Spacer()
                     
                     Button {
+                        // Post a notification so the Map view can focus on this coordinate,
+                        // then switch to the Map tab.
+                        NotificationCenter.default.post(name: .focusMapOnCoordinate, object: nil, userInfo: [
+                            "latitude": latitude,
+                            "longitude": longitude
+                        ])
                         selectedTab = 2 // Map tab
                     } label: {
                         HStack(spacing: 4) {
@@ -384,22 +423,25 @@ struct TodaySelfieCard: View {
     }
 }
 
+
 struct TodayCarouselView: View {
     let records: [SelfieRecord]
     let locationName: String
     @Binding var selectedTab: Int
+    @Binding var selection: Int
 
     var body: some View {
-        TabView {
-            ForEach(records, id: \ .captureDate) { record in
-                if let image = UIImage(data: record.imageData) {
-                    TodaySelfieCard(
-                        image: image,
-                        date: record.captureDate,
-                        location: locationName.isEmpty ? "Unknown Location" : locationName,
-                        selectedTab: $selectedTab
-                    )
-                }
+        TabView(selection: $selection) {
+            ForEach(Array(records.enumerated()), id: \.1.captureDate) { idx, record in
+                TodaySelfieCard(
+                    imageData: record.imageData,
+                    date: record.captureDate,
+                    location: locationName.isEmpty ? "Unknown Location" : locationName,
+                    latitude: record.latitude,
+                    longitude: record.longitude,
+                    selectedTab: $selectedTab
+                )
+                .tag(idx)
             }
         }
         .frame(height: 400)
@@ -426,6 +468,7 @@ struct TodaySelfiePlaceholder: View {
     }
 }
 
+// Reusable small card used for Journey stats
 struct JourneyItem: View {
     let icon: String
     let iconColor: Color
@@ -465,6 +508,9 @@ struct HomeCalendarView: View {
     let records: [SelfieRecord]
     @ObservedObject var calendarVM: CalendarViewModel
     @Binding var selectedRecords: [SelfieRecord]
+    @Environment(\.modelContext) private var modelContext
+    @State private var pendingDelete: SelfieRecord?
+    @State private var showDeleteConfirmation: Bool = false
     
     var body: some View {
         VStack(spacing: 16) {
@@ -505,7 +551,7 @@ struct HomeCalendarView: View {
             VStack(spacing: 8) {
                 // Day Headers
                 HStack(spacing: 0) {
-                    ForEach(["S", "M", "T", "W", "T", "F", "S"], id: \.self) { day in
+                    ForEach(Array(["S", "M", "T", "W", "T", "F", "S"].enumerated()), id: \.offset) { _, day in
                         Text(day)
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -528,36 +574,95 @@ struct HomeCalendarView: View {
                             selectedRecords = records.filter { record in
                                 Calendar.current.isDate(record.captureDate, inSameDayAs: date)
                             }
+                            .sorted { $0.captureDate < $1.captureDate }
                         }
                     }
                 }
             }
             
             // Selected Records Detail — show all photos for the selected day
+            // TODO Redesign this whole section. it seems too complicated for nothing
+            // TODO Redo the alignment logic because the selfies with a note are misaligned with the ones without a note
             if !selectedRecords.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(selectedRecords, id: \.captureDate) { record in
-                            VStack(alignment: .leading, spacing: 8) {
-                                if let image = UIImage(data: record.imageData) {
-                                    Image(uiImage: image)
-                                        .resizable()
-                                        .scaledToFill()
-                                        .frame(width: 200, height: 200)
-                                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                                }
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            ForEach(selectedRecords, id: \.captureDate) { record in
+                                VStack(alignment: .leading, spacing: 8) {
+                                    ZStack(alignment: .bottomTrailing) {
+                                        if let image = UIImage.downsample(data: record.imageData, to: CGSize(width: 200, height: 200)) {
+                                            Image(uiImage: image)
+                                                .resizable()
+                                                .scaledToFill()
+                                                .frame(width: 200, height: 200)
+                                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                                        }
 
-                                if let note = record.note, !note.isEmpty {
-                                    Text(note)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                        // Delete button now requests confirmation
+                                        Button {
+                                            pendingDelete = record
+                                            showDeleteConfirmation = true
+                                        } label: {
+                                            Image(systemName: "trash.fill")
+                                                .foregroundColor(.white)
+                                                .padding(8)
+                                                .background(Color.red.opacity(0.8))
+                                                .clipShape(Circle())
+                                                .shadow(radius: 2)
+                                        }
+                                        .padding(8)
+                                    }
+
+                                    // Fixed height note area to keep alignment even when empty
+                                    Group {
+                                        if let note = record.note, !note.isEmpty {
+                                            Text(note)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                                .frame(maxWidth: 200, alignment: .leading)
+                                        } else {
+                                            // empty placeholder to preserve spacing
+                                            Rectangle()
+                                                .fill(Color.clear)
+                                                .frame(height: 36)
+                                        }
+                                    }
+                                }
+                                .id(record.captureDate)
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+                    .onAppear {
+                        // scroll to newest (right-most)
+                        if let last = selectedRecords.last {
+                            proxy.scrollTo(last.captureDate, anchor: .trailing)
+                        }
+                    }
+                        .onChange(of: selectedRecords.count) { _ in
+                            if let last = selectedRecords.last {
+                                withAnimation {
+                                    proxy.scrollTo(last.captureDate, anchor: .trailing)
                                 }
                             }
                         }
                     }
-                    .padding(.horizontal)
-                }
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .alert(isPresented: $showDeleteConfirmation) {
+                        Alert(
+                            title: Text("Delete Selfie?"),
+                            message: Text("This will permanently delete the selected selfie."),
+                            primaryButton: .destructive(Text("Delete")) {
+                                if let del = pendingDelete {
+                                    modelContext.delete(del)
+                                    try? modelContext.save()
+                                    selectedRecords.removeAll { $0 === del }
+                                    pendingDelete = nil
+                                }
+                            },
+                            secondaryButton: .cancel({ pendingDelete = nil })
+                        )
+                    }
             }
         }
         .padding()
@@ -584,11 +689,11 @@ struct HomeDayCell: View {
                 .background(isSelected ? Color.blue : (isToday ? Color.blue.opacity(0.1) : Color.clear))
                 .clipShape(Circle())
                 .overlay {
-                    if hasRecord && !isSelected {
+                    if hasRecord {
                         Circle()
                             .fill(.green)
                             .frame(width: 6, height: 6)
-                            .offset(y: 18)
+                            .offset(y: 22)
                     }
                 }
         }
@@ -606,7 +711,7 @@ struct HomeRecordDetailView: View {
                 Spacer()
             }
             
-            if let image = UIImage(data: record.imageData) {
+            if let image = UIImage.downsample(data: record.imageData, to: CGSize(width: 400, height: 200)) {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
