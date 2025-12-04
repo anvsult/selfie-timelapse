@@ -6,6 +6,7 @@ import SwiftData
 struct CalendarView: View {
     @Query(sort: \SelfieRecord.captureDate) private var records: [SelfieRecord]
     @StateObject private var viewModel = CalendarViewModel()
+    @StateObject private var weatherService = WeatherService()
     @State private var selectedRecord: SelfieRecord?
     
     var body: some View {
@@ -65,7 +66,7 @@ struct CalendarView: View {
                 .padding()
                 
                 if let record = selectedRecord {
-                    RecordDetailView(record: record)
+                    RecordDetailView(record: record, weatherService: weatherService)
                         .transition(.move(edge: .bottom))
                 } else {
                     Spacer()
@@ -104,6 +105,8 @@ struct DayCell: View {
 
 struct RecordDetailView: View {
     let record: SelfieRecord
+    @ObservedObject var weatherService: WeatherService
+    @State private var weather: WeatherData?
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -115,8 +118,31 @@ struct RecordDetailView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 12))
             }
             
-            Text(record.captureDate.formatted(date: .long, time: .shortened))
-                .font(.headline)
+            HStack {
+                VStack(alignment: .leading) {
+                    Text(record.captureDate.formatted(date: .long, time: .shortened))
+                        .font(.headline)
+                    
+                    // Weather display
+                    if let weather = weather {
+                        HStack(spacing: 8) {
+                            Text(weather.weatherEmoji)
+                                .font(.title2)
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(weather.temperatureFahrenheit)°F")
+                                    .font(.headline)
+                                Text(weather.description.capitalized)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.top, 4)
+                    }
+                }
+                
+                Spacer()
+            }
             
             if let note = record.note {
                 Text(note)
@@ -141,5 +167,24 @@ struct RecordDetailView: View {
         .background(Color(.systemGray6))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .padding()
+        .task {
+            // First check if weather data is already saved with the record
+            if let savedWeather = record.weather {
+                weather = savedWeather
+                print("✅ Loaded saved weather: \(savedWeather.temperatureFahrenheit)°F, \(savedWeather.condition)")
+            } else if record.latitude != 0 && record.longitude != 0 {
+                // Fetch weather from API if not saved
+                print("🌐 Fetching weather from API for coordinates: \(record.latitude), \(record.longitude)")
+                weather = await weatherService.fetchWeather(
+                    for: record.coordinate,
+                    date: record.captureDate
+                )
+                if let weather = weather {
+                    print("✅ Fetched weather: \(weather.temperatureFahrenheit)°F, \(weather.condition)")
+                }
+            } else {
+                print("⚠️ No location data available for this record")
+            }
+        }
     }
 }

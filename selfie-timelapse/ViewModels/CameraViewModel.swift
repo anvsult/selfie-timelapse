@@ -12,10 +12,12 @@ class CameraViewModel: NSObject, ObservableObject {
     @Published var capturedImage: UIImage?
     @Published var note: String = ""
     @Published var tags: [String] = []
+    @Published var currentWeather: WeatherData?
     
     private var captureSession: AVCaptureSession?
     private var photoOutput: AVCapturePhotoOutput?
     private var previewLayer: AVCaptureVideoPreviewLayer?
+    private let weatherService = WeatherService()
     
     override init() {
         super.init()
@@ -109,10 +111,34 @@ class CameraViewModel: NSObject, ObservableObject {
         captureSession?.stopRunning()
     }
     
-    func saveRecord(context: ModelContext, location: CLLocation?) {
+    func saveRecord(context: ModelContext, location: CLLocation?) async {
         guard let image = capturedImage,
               let imageData = image.jpegData(compressionQuality: 0.8) else {
+            print("⚠️ No image to save")
             return
+        }
+        
+        // Fetch weather for current location
+        var weatherData: Data? = nil
+        if let location = location {
+            print("📍 Fetching weather for location: \(location.coordinate.latitude), \(location.coordinate.longitude)")
+            let weather = await weatherService.fetchWeather(
+                for: location.coordinate,
+                date: Date()
+            )
+            if let weather = weather {
+                print("✅ Weather fetched: \(weather.temperatureFahrenheit)°F, \(weather.condition)")
+                weatherData = try? JSONEncoder().encode(weather)
+                if weatherData != nil {
+                    print("✅ Weather data encoded successfully")
+                } else {
+                    print("❌ Failed to encode weather data")
+                }
+            } else {
+                print("⚠️ No weather data returned")
+            }
+        } else {
+            print("⚠️ No location available for weather")
         }
         
         let record = SelfieRecord(
@@ -121,11 +147,16 @@ class CameraViewModel: NSObject, ObservableObject {
             latitude: location?.coordinate.latitude ?? 0,
             longitude: location?.coordinate.longitude ?? 0,
             note: note.isEmpty ? nil : note,
-            tags: tags
+            tags: tags,
+            weatherData: weatherData
         )
+        
+        print("💾 Saving record with weather data: \(weatherData != nil ? "YES" : "NO")")
         
         context.insert(record)
         try? context.save()
+        
+        print("✅ Record saved successfully")
         
         // Reset
         capturedImage = nil

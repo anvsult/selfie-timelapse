@@ -8,6 +8,7 @@ struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \SelfieRecord.captureDate, order: .reverse) private var records: [SelfieRecord]
     @EnvironmentObject var notificationManager: NotificationManager
+    @EnvironmentObject var locationManager: LocationManager
     @State private var selectedTab = 0
     
     var body: some View {
@@ -42,6 +43,10 @@ struct HomeView: View {
                 }
                 .tag(4)
         }
+        .onAppear {
+            // Request location permission when app starts
+            locationManager.requestPermission()
+        }
     }
 }
 
@@ -49,10 +54,17 @@ struct DashboardView: View {
     let records: [SelfieRecord]
     @Binding var selectedTab: Int
     @StateObject private var calendarVM = CalendarViewModel()
+    @StateObject private var weatherService = WeatherService()
+    @AppStorage("temperatureUnit") private var temperatureUnitString = "Fahrenheit"
     @State private var todayRecords: [SelfieRecord] = []
     @State private var selectedDayRecords: [SelfieRecord] = []
     @State private var todayIndex: Int = 0
     @State private var locationName: String = ""
+    @State private var showSearchModal = false
+    
+    private var temperatureUnit: TemperatureUnit {
+        TemperatureUnit(rawValue: temperatureUnitString) ?? .fahrenheit
+    }
     
     var streakCount: Int {
         calendarVM.streakCount(in: records)
@@ -87,6 +99,10 @@ struct DashboardView: View {
         return (calendar.dateComponents([.day], from: firstDate, to: Date()).day ?? 0) + 1
     }
     
+    var totalTags: Int {
+        Set(records.flatMap { $0.tags }).count
+    }
+    
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -97,6 +113,25 @@ struct DashboardView: View {
                         .bold()
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal)
+                    
+                    // Search Button
+                    Button {
+                        showSearchModal = true
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "magnifyingglass")
+                                .foregroundStyle(.secondary)
+                            
+                            Text("Search tags or notes...")
+                                .foregroundStyle(.secondary)
+                            
+                            Spacer()
+                        }
+                        .padding(12)
+                        .background(Color(.systemGray6))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .padding(.horizontal)
                     
                     // Stats Cards
                     HStack(spacing: 16) {
@@ -184,6 +219,15 @@ struct DashboardView: View {
                                 title: "Journey Duration",
                                 subtitle: "\(journeyDuration) days and counting"
                             )
+                            
+                            if totalTags > 0 {
+                                JourneyItem(
+                                    icon: "tag.fill",
+                                    iconColor: .orange,
+                                    title: "Tags Created",
+                                    subtitle: "\(totalTags) unique tags"
+                                )
+                            }
                         }
                         .padding(.horizontal)
                     }
@@ -194,8 +238,14 @@ struct DashboardView: View {
                             .font(.headline)
                             .padding(.horizontal)
                         
-                        HomeCalendarView(records: records, calendarVM: calendarVM, selectedRecords: $selectedDayRecords)
-                            .padding(.horizontal)
+                        HomeCalendarView(
+                            records: records,
+                            calendarVM: calendarVM,
+                            weatherService: weatherService,
+                            temperatureUnit: temperatureUnit,
+                            selectedRecords: $selectedDayRecords
+                        )
+                        .padding(.horizontal)
                     }
                 }
                 .padding(.vertical)
@@ -212,6 +262,9 @@ struct DashboardView: View {
             .onChange(of: records.count) { _ in
                 // refresh when records are added/removed
                 refreshDerivedRecords()
+            }
+            .sheet(isPresented: $showSearchModal) {
+                SearchGalleryView(records: records, temperatureUnit: temperatureUnit)
             }
         }
         .navigationTitle("Selfi")
@@ -507,10 +560,13 @@ struct JourneyItem: View {
 struct HomeCalendarView: View {
     let records: [SelfieRecord]
     @ObservedObject var calendarVM: CalendarViewModel
+    @ObservedObject var weatherService: WeatherService
+    let temperatureUnit: TemperatureUnit
     @Binding var selectedRecords: [SelfieRecord]
     @Environment(\.modelContext) private var modelContext
     @State private var pendingDelete: SelfieRecord?
     @State private var showDeleteConfirmation: Bool = false
+    @State private var weatherDataForRecords: [Date: WeatherData] = [:]
     
     var body: some View {
         VStack(spacing: 16) {
@@ -586,7 +642,7 @@ struct HomeCalendarView: View {
             if !selectedRecords.isEmpty {
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
+                        HStack(alignment: .top, spacing: 12) {
                             ForEach(selectedRecords, id: \.captureDate) { record in
                                 VStack(alignment: .leading, spacing: 8) {
                                     ZStack(alignment: .bottomTrailing) {
@@ -612,22 +668,53 @@ struct HomeCalendarView: View {
                                         }
                                         .padding(8)
                                     }
-
-                                    // Fixed height note area to keep alignment even when empty
-                                    Group {
-                                        if let note = record.note, !note.isEmpty {
-                                            Text(note)
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                                .frame(maxWidth: 200, alignment: .leading)
-                                        } else {
-                                            // empty placeholder to preserve spacing
-                                            Rectangle()
-                                                .fill(Color.clear)
-                                                .frame(height: 36)
+                                    
+                                    // Weather display
+                                    if let weather = weatherDataForRecords[record.captureDate] {
+                                        HStack(spacing: 6) {
+                                            Text(weather.weatherEmoji)
+                                                .font(.title3)
+                                            
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(weather.formattedTemperature(unit: temperatureUnit))
+                                                    .font(.caption)
+                                                    .fontWeight(.semibold)
+                                                Text(weather.description.capitalized)
+                                                    .font(.caption2)
+                                                    .foregroundStyle(.secondary)
+                                            }
                                         }
+                                        .frame(maxWidth: 200, alignment: .leading)
+                                    }
+                                    
+                                    // Tags display
+                                    if !record.tags.isEmpty {
+                                        ScrollView(.horizontal, showsIndicators: false) {
+                                            HStack(spacing: 4) {
+                                                ForEach(record.tags, id: \.self) { tag in
+                                                    Text(tag)
+                                                        .font(.caption2)
+                                                        .padding(.horizontal, 6)
+                                                        .padding(.vertical, 3)
+                                                        .background(Color.blue.opacity(0.15))
+                                                        .foregroundStyle(.blue)
+                                                        .clipShape(Capsule())
+                                                }
+                                            }
+                                        }
+                                        .frame(maxWidth: 200)
+                                    }
+
+                                    // Note display - no fixed height needed
+                                    if let note = record.note, !note.isEmpty {
+                                        Text(note)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .frame(maxWidth: 200, alignment: .leading)
+                                            .lineLimit(3)
                                     }
                                 }
+                                .frame(width: 200)
                                 .id(record.captureDate)
                             }
                         }
@@ -654,13 +741,25 @@ struct HomeCalendarView: View {
                             message: Text("This will permanently delete the selected selfie."),
                             primaryButton: .destructive(Text("Delete")) {
                                 if let del = pendingDelete {
+                                    // Store the date before deletion
+                                    let deletedDate = del.captureDate
+                                    
+                                    // Delete from context
                                     modelContext.delete(del)
                                     try? modelContext.save()
-                                    selectedRecords.removeAll { $0 === del }
+                                    
+                                    // Immediately update selectedRecords by filtering out the deleted one
+                                    selectedRecords.removeAll { Calendar.current.isDate($0.captureDate, inSameDayAs: deletedDate) && $0.captureDate == del.captureDate }
+                                    
+                                    // Clear weather data for deleted record
+                                    weatherDataForRecords.removeValue(forKey: deletedDate)
+                                    
                                     pendingDelete = nil
                                 }
                             },
-                            secondaryButton: .cancel({ pendingDelete = nil })
+                            secondaryButton: .cancel({ 
+                                pendingDelete = nil 
+                            })
                         )
                     }
             }
@@ -671,6 +770,39 @@ struct HomeCalendarView: View {
         .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
         .animation(.default, value: selectedRecords)
         .animation(.default, value: calendarVM.currentMonth)
+        .onChange(of: records.count) { oldCount, newCount in
+            // When records count changes (deletion), refresh selected records
+            if newCount < oldCount {
+                selectedRecords = records.filter { record in
+                    Calendar.current.isDate(record.captureDate, inSameDayAs: calendarVM.selectedDate)
+                }
+                .sorted { $0.captureDate < $1.captureDate }
+            }
+        }
+        .task(id: selectedRecords.count) {
+            // Load weather for all selected records
+            await loadWeatherForRecords()
+        }
+    }
+    
+    private func loadWeatherForRecords() async {
+        for record in selectedRecords {
+            // First check if weather is saved with the record
+            if let savedWeather = record.weather {
+                weatherDataForRecords[record.captureDate] = savedWeather
+                print("✅ Loaded saved weather for \(record.captureDate): \(savedWeather.temperatureFahrenheit)°F")
+            } else if record.latitude != 0 && record.longitude != 0 {
+                // Fetch from API if not saved
+                print("🌐 Fetching weather for \(record.captureDate)")
+                if let weather = await weatherService.fetchWeather(
+                    for: record.coordinate,
+                    date: record.captureDate
+                ) {
+                    weatherDataForRecords[record.captureDate] = weather
+                    print("✅ Fetched weather: \(weather.temperatureFahrenheit)°F")
+                }
+            }
+        }
     }
 }
 

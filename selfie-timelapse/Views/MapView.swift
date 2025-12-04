@@ -3,6 +3,7 @@ import SwiftUI
 import SwiftData
 import MapKit
 import Combine
+import CoreLocation
 
 struct MapView: View {
     @Query(sort: \SelfieRecord.captureDate) private var records: [SelfieRecord]
@@ -24,25 +25,9 @@ struct MapView: View {
                 } else {
                     Map(coordinateRegion: $viewModel.region, annotationItems: recordsWithLocation) { record in
                         MapAnnotation(coordinate: record.coordinate) {
-                            Button {
-                                viewModel.selectedRecord = record
-                            } label: {
-                                ZStack {
-                                    Circle()
-                                        .fill(.blue)
-                                        .frame(width: 30, height: 30)
-                                    
-                                    if let image = UIImage(data: record.imageData) {
-                                        Image(uiImage: image)
-                                            .resizable()
-                                            .scaledToFill()
-                                            .frame(width: 24, height: 24)
-                                            .clipShape(Circle())
-                                    } else {
-                                        Image(systemName: "camera.fill")
-                                            .foregroundStyle(.white)
-                                            .font(.caption)
-                                    }
+                            MapAnnotationView(record: record) {
+                                DispatchQueue.main.async {
+                                    viewModel.selectedRecord = record
                                 }
                             }
                         }
@@ -54,7 +39,9 @@ struct MapView: View {
                             Spacer()
                             
                             MapRecordCard(record: selected) {
-                                viewModel.selectedRecord = nil
+                                DispatchQueue.main.async {
+                                    viewModel.selectedRecord = nil
+                                }
                             }
                             .padding()
                             .transition(.move(edge: .bottom))
@@ -74,29 +61,65 @@ struct MapView: View {
             .onAppear {
                 viewModel.centerOnRecords(recordsWithLocation)
             }
-            // Listen for requests to focus the map on a particular coordinate
             .onReceive(NotificationCenter.default.publisher(for: .focusMapOnCoordinate)) { note in
-                guard let info = note.userInfo,
-                      let lat = info["latitude"] as? Double,
-                      let lon = info["longitude"] as? Double else { return }
+                DispatchQueue.main.async {
+                    guard let info = note.userInfo,
+                          let lat = info["latitude"] as? Double,
+                          let lon = info["longitude"] as? Double else { return }
 
-                let coord = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                    let coord = CLLocationCoordinate2D(latitude: lat, longitude: lon)
 
-                // narrow region and center on the requested coordinate
-                let span = MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
-                viewModel.region = MKCoordinateRegion(center: coord, span: span)
+                    // narrow region and center on the requested coordinate
+                    let span = MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
+                    viewModel.region = MKCoordinateRegion(center: coord, span: span)
 
-                // try to find the matching record (closest by distance) and select it
-                if let closest = recordsWithLocation.min(by: {
-                    let a = CLLocation(latitude: $0.latitude, longitude: $0.longitude)
-                    let b = CLLocation(latitude: $1.latitude, longitude: $1.longitude)
-                    let target = CLLocation(latitude: lat, longitude: lon)
-                    return a.distance(from: target) < b.distance(from: target)
-                }) {
-                    viewModel.selectedRecord = closest
+                    // try to find the matching record (closest by distance) and select it
+                    if let closest = recordsWithLocation.min(by: {
+                        let a = CLLocation(latitude: $0.latitude, longitude: $0.longitude)
+                        let b = CLLocation(latitude: $1.latitude, longitude: $1.longitude)
+                        let target = CLLocation(latitude: lat, longitude: lon)
+                        return a.distance(from: target) < b.distance(from: target)
+                    }) {
+                        viewModel.selectedRecord = closest
+                    }
                 }
             }
             .animation(.default, value: viewModel.selectedRecord)
+        }
+    }
+}
+
+struct MapAnnotationView: View {
+    let record: SelfieRecord
+    let onTap: () -> Void
+    @State private var thumbnail: UIImage?
+    
+    var body: some View {
+        Button {
+            onTap()
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(.blue)
+                    .frame(width: 30, height: 30)
+                
+                if let image = thumbnail {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 24, height: 24)
+                        .clipShape(Circle())
+                } else {
+                    Image(systemName: "camera.fill")
+                        .foregroundStyle(.white)
+                        .font(.caption)
+                }
+            }
+        }
+        .task {
+            if thumbnail == nil {
+                thumbnail = UIImage.downsample(data: record.imageData, to: CGSize(width: 48, height: 48))
+            }
         }
     }
 }
@@ -107,7 +130,7 @@ struct MapRecordCard: View {
     
     var body: some View {
         HStack(spacing: 12) {
-            if let image = UIImage(data: record.imageData) {
+            if let image = UIImage.downsample(data: record.imageData, to: CGSize(width: 160, height: 160)) {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()

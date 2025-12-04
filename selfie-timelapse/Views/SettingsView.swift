@@ -12,7 +12,11 @@ struct SettingsView: View {
     @StateObject private var calendarVM = CalendarViewModel()
     @AppStorage("darkModeEnabled") private var darkModeEnabled = false
     @AppStorage("colorScheme") private var colorSchemeString = "system"
+    @AppStorage("temperatureUnit") private var temperatureUnitString = "Fahrenheit"
     
+    private var temperatureUnit: TemperatureUnit {
+        TemperatureUnit(rawValue: temperatureUnitString) ?? .fahrenheit
+    }
     
     @State private var reminderTime = Date()
     @State private var notificationsEnabled = true
@@ -127,6 +131,26 @@ struct SettingsView: View {
                                 iconColor: .gray,
                                 title: "Appearance",
                                 subtitle: colorSchemeString.capitalized,
+                                trailing: {
+                                    Image(systemName: "chevron.down")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            )
+                        }
+                        
+                        Menu {
+                            ForEach(TemperatureUnit.allCases, id: \.self) { unit in
+                                Button(unit.rawValue) {
+                                    temperatureUnitString = unit.rawValue
+                                }
+                            }
+                        } label: {
+                            SettingsRow(
+                                icon: "thermometer",
+                                iconColor: .orange,
+                                title: "Temperature Unit",
+                                subtitle: temperatureUnit.rawValue,
                                 trailing: {
                                     Image(systemName: "chevron.down")
                                         .font(.caption)
